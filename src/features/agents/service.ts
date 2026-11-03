@@ -112,6 +112,7 @@ import {
   communityDestination,
   RelayPolicyError,
   relayOrigin,
+  resolveCommunity,
 } from "../communities/destination";
 import type { Communities } from "../communities/service";
 import {
@@ -1636,6 +1637,16 @@ type Member = AgentIdentity & Readonly<{ key: AgentKey }>;
 const originOf = (value: string) => {
   try {
     return communityDestination(value).url;
+  } catch {
+    return undefined;
+  }
+};
+/** The origin a relay URL or community ID names whatever the relay policy:
+ * the identity its keys and synced config are stored under, never permission
+ * to connect. */
+const storedOrigin = (value: string) => {
+  try {
+    return resolveCommunity(value).url;
   } catch {
     return undefined;
   }
@@ -5322,7 +5333,7 @@ export class AgentsService extends Service implements Agents {
         ...row,
         key: agentKey(
           row.pubkey,
-          originOf(row.relay) ?? row.relay,
+          storedOrigin(row.relay) ?? row.relay,
           homeOf(row),
         ),
       }),
@@ -6245,7 +6256,7 @@ async function handOnMainAgent(session: RelaySession, pubkey: string) {
  * the community it was first in, where its membership's key is its pubkey. */
 function homeOf(row: Pick<AgentIdentity, "relay" | "home">) {
   const relay = row.home ?? row.relay;
-  return originOf(relay) ?? relay;
+  return storedOrigin(relay) ?? relay;
 }
 /** A synced team change that stopped, as its owner reads it. */
 function teamOutcome(result: TeamResult, name: (pubkey: string) => string) {
