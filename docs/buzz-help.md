@@ -174,6 +174,8 @@ revokes all of them, and a pairing unused for 30 days expires.
 
 ## Conversations and communities
 
+- Forum posts created on mobile appear in the desktop conversation. Open a post's
+  replies to read or reply in its thread, including after reloading the app.
 - Each reaction emoji has its own capsule. Hover or focus it to see everyone
   who reacted. Large lists scroll within the preview. With a keyboard, Tab into
   the list to scroll it; Escape dismisses the preview. Clicking the emoji adds
