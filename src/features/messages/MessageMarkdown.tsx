@@ -398,13 +398,23 @@ function remarkInlineContent(protectedContent: ProtectedContent) {
         return;
       }
       if (!parent.children) return;
-      parent.children = parent.children.flatMap((child) => {
+      parent.children = parent.children.flatMap((child, index, siblings) => {
         if (child.type !== "text" || typeof child.value !== "string") {
           visit(child);
           return [child];
         }
-        const parts: InlinePart[] = [];
+        const next = siblings[index + 1];
+        const parts: (InlinePart & { gap?: true; spaced?: true })[] = [];
         let plain = "";
+        // A trailing space is dropped where a line wraps, unlike a margin, so
+        // the space before a capsule can carry the room its outdent takes.
+        const pushPlain = (capsuleFollows: boolean) => {
+          const space = capsuleFollows ? / +$/.exec(plain)?.[0] : undefined;
+          const text = space ? plain.slice(0, -space.length) : plain;
+          if (text) parts.push({ text });
+          if (space) parts.push({ text: space, gap: true });
+          return !!space;
+        };
         let end = 0;
         for (const match of child.value.matchAll(
           placeholderPattern(protectedContent),
@@ -412,8 +422,9 @@ function remarkInlineContent(protectedContent: ProtectedContent) {
           plain += child.value.slice(end, match.index);
           const part = protectedContent.parts[Number(match[1])];
           if (part?.target || part?.literal) {
-            if (plain) parts.push({ text: plain });
-            parts.push(part);
+            parts.push(
+              pushPlain(!!part.target) ? { ...part, spaced: true } : part,
+            );
             plain = "";
           } else {
             plain += part?.text ?? match[0];
@@ -421,13 +432,25 @@ function remarkInlineContent(protectedContent: ProtectedContent) {
           end = match.index + match[0].length;
         }
         plain += child.value.slice(end);
-        if (plain) parts.push({ text: plain });
+        if (
+          pushPlain(next?.type === "link" && !!profileKey(next.url ?? "")) &&
+          next
+        )
+          next.data = {
+            ...next.data,
+            hProperties: {
+              ...next.data?.hProperties,
+              "data-mention-spaced": "",
+            },
+          };
         return parts.map((part) => ({
           type: "buzzInlineContent",
           data: {
             hName: "span",
             hProperties: {
               "data-inline-text": part.text,
+              ...(part.gap ? { "data-mention-gap": "" } : {}),
+              ...(part.spaced ? { "data-mention-spaced": "" } : {}),
               ...(part.literal ? { "data-literal-text": "true" } : {}),
               ...(part.target ? { "data-profile-target": part.target } : {}),
             },
@@ -675,7 +698,7 @@ function PreparedMessageMarkdown({
   );
   // Explicit profile links are identity locators, not signed notification intent.
   // Reuse the same control and availability gate as bound prose mentions.
-  const renderProfile = (text: unknown, target: unknown) => {
+  const renderProfile = (text: unknown, target: unknown, spaced: boolean) => {
     const key = typeof target === "string" ? profileKey(target) : undefined;
     const agent =
       !!key &&
@@ -694,6 +717,7 @@ function PreparedMessageMarkdown({
           className={referenceStyles.link}
           data-mention-kind={agent ? "agent" : "person"}
           data-mention-self={key && key === session?.viewer ? "" : undefined}
+          data-mention-spaced={spaced ? "" : undefined}
           data-profile-target={target}
           data-mention-name={label}
           aria-label={clickable ? `View ${label} profile` : undefined}
@@ -734,7 +758,7 @@ function PreparedMessageMarkdown({
         />
       );
     },
-    a: ({ href: target, children }) => {
+    a: ({ href: target, children, ...props }) => {
       const href =
         target &&
         (parseBuzzLink(target) ||
@@ -752,7 +776,11 @@ function PreparedMessageMarkdown({
               {children} ({href})
             </span>
           );
-        return renderProfile(label.startsWith("@") ? label : `@${label}`, href);
+        return renderProfile(
+          label.startsWith("@") ? label : `@${label}`,
+          href,
+          "data-mention-spaced" in props,
+        );
       }
       return href ? (
         renderLink(
@@ -783,7 +811,13 @@ function PreparedMessageMarkdown({
         "data-profile-target"?: unknown;
         "data-literal-text"?: unknown;
       };
-      const profile = renderProfile(text, target);
+      if ("data-mention-gap" in props)
+        return <span data-mention-gap="">{text as string}</span>;
+      const profile = renderProfile(
+        text,
+        target,
+        "data-mention-spaced" in props,
+      );
       if (profile) return profile;
       return typeof text === "string" ? (
         literalText === "true" ? (

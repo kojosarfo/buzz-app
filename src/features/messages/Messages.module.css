@@ -3214,12 +3214,19 @@ html[data-keyboard-navigation] .rawDiff:focus-visible {
   padding-inline: var(--space-1h);
 }
 /* Align the leading sigil with prose; its capsule paints into the gutter.
-   The renderer marks actual paragraph starts, not merely first elements. */
+   The renderer marks actual paragraph starts, not merely first elements.
+   A capsule after a space outdents too, and that space widens to match: it
+   keeps mid-line spacing and drops where the line wraps, so a capsule that
+   wraps to a line start also meets the prose edge. */
 .messageBubble
   > .text
   > p[data-leading-mention]
-  > [data-mention-kind]:first-child {
+  > [data-mention-kind]:first-child,
+.messageBubble > .text > p > [data-mention-spaced] {
   margin-inline-start: calc(-1 * var(--space-1h));
+}
+.messageBubble > .text > p > [data-mention-gap]:has(+ [data-mention-spaced]) {
+  word-spacing: var(--space-1h);
 }
 .messageBubble .text :is(pre, .codeBlock, table) {
   border-radius: var(--message-inner-radius);
@@ -3439,8 +3446,20 @@ html[data-keyboard-navigation] .rawDiff:focus-visible {
   .messageBubble
   > .text
   > p[data-leading-mention]
-  > [data-mention-kind]:first-child {
+  > [data-mention-kind]:first-child,
+:where(html[data-message-density="compact"])
+  .messageBubble
+  > .text
+  > p
+  > [data-mention-spaced] {
   margin-inline-start: calc(-1 * var(--space-half));
+}
+:where(html[data-message-density="compact"])
+  .messageBubble
+  > .text
+  > p
+  > [data-mention-gap]:has(+ [data-mention-spaced]) {
+  word-spacing: var(--space-half);
 }
 :where(html[data-message-density="compact"])
   .message

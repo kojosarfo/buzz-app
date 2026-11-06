@@ -54,6 +54,7 @@ vi.mock("react-markdown", async (importOriginal) => {
   };
 });
 
+const mentionGap = '<span data-mention-gap=""> </span>';
 const mic = "b".repeat(64),
   smith = "a".repeat(64),
   other = "c".repeat(64);
@@ -744,7 +745,7 @@ describe("Markdown profile mentions", () => {
       ]),
     });
     expect(html.match(/<button/g)).toHaveLength(1);
-    expect(html).toContain("@Mic Smith and <button");
+    expect(html).toContain(`@Mic Smith and${mentionGap}<button`);
   });
 
   it("updates a mounted mention label without changing signed binding or profile target", () => {
@@ -809,7 +810,7 @@ describe("Markdown profile mentions", () => {
     const html = render(literal + " " + encoded + " then @Mic");
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain(
-      "\uFFFC0\uE0010\uFFFC \uFFFC1\uE0010\uFFFC then <button",
+      `\uFFFC0\uE0010\uFFFC \uFFFC1\uE0010\uFFFC then${mentionGap}<button`,
     );
     expect(render(literal + " " + encoded)).not.toContain("<button");
   });
@@ -820,7 +821,7 @@ describe("Markdown profile mentions", () => {
     const html = render(`${spoof} then @Mic`);
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain(
-      "\uE0000\uE0010\uE002 \uE0001\uE0010\uE002 \uE0002\uE0010\uE002 \uE0000\uE001 then <button",
+      `\uE0000\uE0010\uE002 \uE0001\uE0010\uE002 \uE0002\uE0010\uE002 \uE0000\uE001 then${mentionGap}<button`,
     );
     expect(render(spoof)).not.toContain("<button");
     expect(
@@ -1068,6 +1069,29 @@ describe("paragraph-leading profile capsules", () => {
         expect(capsule.closest("p")?.hasAttribute("data-leading-mention")).toBe(
           leading,
         );
+        view.unmount();
+      }
+    },
+  );
+
+  // The outdent's room moves into the preceding space, which drops at a wrap.
+  it.each(["@Mic", `[@Mic](${profileTarget(mic)})`])(
+    "gives %s its preceding spaces only",
+    (mention) => {
+      for (const [content, gap] of [
+        [`Hello  ${mention} there`, "  "],
+        [`(${mention})`, undefined],
+      ] as const) {
+        const view = renderDom(<MessageMarkdown {...props(content)} />);
+        const capsule = view.getByRole("button", { name: "View Mic profile" });
+        const before = capsule.previousElementSibling;
+        expect(
+          before?.hasAttribute("data-mention-gap") ? before.textContent : null,
+        ).toBe(gap ?? null);
+        expect(capsule.hasAttribute("data-mention-spaced")).toBe(!!gap);
+        expect(
+          view.container.querySelectorAll("[data-mention-gap]"),
+        ).toHaveLength(gap ? 1 : 0);
         view.unmount();
       }
     },
