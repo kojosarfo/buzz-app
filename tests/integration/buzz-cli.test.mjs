@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import test from "node:test";
 import { buzzPin } from "../../scripts/build-buzz-cli.mjs";
 
@@ -26,6 +36,77 @@ test("a manifest without a pinned revision is rejected", () => {
     'buzz-audio-client = { git = "https://github.com/block/buzz.git", rev = "main" }',
   ])
     assert.throws(() => buzzPin(manifest), /no buzz-audio-client git revision/);
+});
+
+test("CLI staging isolates revision, profile and target build artifacts and retires old installs", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "buzz-cli-staging-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(join(directory, "scripts"));
+  mkdirSync(join(directory, "src-tauri"));
+  copyFileSync(
+    new URL("../../scripts/build-buzz-cli.mjs", import.meta.url),
+    join(directory, "scripts/build-buzz-cli.mjs"),
+  );
+  // Model Cargo reusing a fresh named build artifact and skipping an existing
+  // install. The staging script must keep incompatible inputs out of both.
+  writeFileSync(
+    join(directory, "cargo"),
+    `#!${process.execPath}
+const { existsSync, mkdirSync, writeFileSync, copyFileSync } = require("node:fs");
+const { join } = require("node:path");
+const args = process.argv.slice(2);
+const value = flag => args[args.indexOf(flag) + 1];
+const root = value("--root"), build = value("--target-dir");
+const target = args.includes("--target") ? value("--target") : "host";
+const profile = args.includes("--debug") ? "debug" : "release";
+const name = target.includes("windows") ? "buzz.exe" : "buzz";
+mkdirSync(join(root, "bin"), { recursive: true });
+mkdirSync(build, { recursive: true });
+const installed = join(root, "bin", name), artifact = join(build, name);
+if (!existsSync(installed)) {
+  if (!existsSync(artifact)) writeFileSync(artifact, [value("--rev"), target, profile].join(":"));
+  copyFileSync(artifact, installed);
+}
+`,
+    { mode: 0o755 },
+  );
+  const target = join(directory, "target");
+  const oldInstall = join(target, "buzz-cli", rev, "host", "debug", "bin");
+  mkdirSync(oldInstall, { recursive: true });
+  writeFileSync(join(oldInstall, "buzz"), "stale legacy install");
+  for (const [revision, dev, triple] of [
+    [rev, true, ""],
+    ["c8d736642e1cddaca5797c54c0c625d16a1724ed", true, ""],
+    [rev, false, ""],
+    [rev, true, "aarch64-unknown-linux-gnu"],
+    [rev, true, ""],
+  ]) {
+    writeFileSync(
+      join(directory, "src-tauri/Cargo.toml"),
+      `buzz-audio-client = { git = "https://github.com/block/buzz.git", rev = "${revision}" }`,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(directory, "scripts/build-buzz-cli.mjs"),
+        ...(dev ? ["--dev"] : []),
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${directory}${delimiter}${process.env.PATH}`,
+          CARGO_TARGET_DIR: target,
+          TAURI_ENV_TARGET_TRIPLE: triple || undefined,
+        },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      readFileSync(join(directory, "src-tauri/resources/bin/buzz"), "utf8"),
+      [revision, triple || "host", dev ? "debug" : "release"].join(":"),
+    );
+  }
 });
 
 test("desktop builds stage buzz after the other helpers", () => {
