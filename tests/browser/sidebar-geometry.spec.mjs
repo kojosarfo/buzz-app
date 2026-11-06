@@ -225,6 +225,20 @@ test("Solo rows span the Team row width and workspace actions stay in their head
   await expect(
     page.getByRole("button", { name: "New chat or workspace" }),
   ).toHaveCount(0);
+  // Nothing takes a row between the untitled list's top inset and its content.
+  await expect
+    .poll(() =>
+      soloRow.evaluate((row) => {
+        const section = row.closest('[class*="untitledSection"]');
+        const content = section.lastElementChild;
+        return (
+          content.getBoundingClientRect().top -
+          section.getBoundingClientRect().top -
+          parseFloat(getComputedStyle(section).paddingBlockStart)
+        );
+      }),
+    )
+    .toBe(0);
 
   await soloRow.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to", exact: true }).hover();
